@@ -87,6 +87,9 @@ func TestCreateOrder_Accepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", res.StatusCode)
@@ -125,6 +128,9 @@ func TestCreateOrder_AlreadyExistsSameUser(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	res, _ := http.DefaultClient.Do(req)
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
@@ -164,6 +170,9 @@ func TestCreateOrder_OwnedByAnotherUser(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	res, _ := http.DefaultClient.Do(req)
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", res.StatusCode)
@@ -202,6 +211,9 @@ func TestListOrders_OK(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	res, _ := http.DefaultClient.Do(req)
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
@@ -233,6 +245,9 @@ func TestListOrders_Empty(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	res, _ := http.DefaultClient.Do(req)
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.StatusCode)

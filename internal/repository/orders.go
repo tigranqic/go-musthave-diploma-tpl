@@ -85,6 +85,7 @@ func (p *PostgresStorage) GetOrdersByUserID(ctx context.Context, userID int64) (
 	defer func() {
 		_ = rows.Close()
 	}()
+
 	var orders []*models.Order
 	for rows.Next() {
 		o := &models.Order{}
@@ -98,6 +99,10 @@ func (p *PostgresStorage) GetOrdersByUserID(ctx context.Context, userID int64) (
 			return nil, err
 		}
 		orders = append(orders, o)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return orders, nil
@@ -117,6 +122,7 @@ func (p *PostgresStorage) GetOrdersByStatus(ctx context.Context, status string) 
 	defer func() {
 		_ = rows.Close()
 	}()
+
 	var orders []*models.Order
 	for rows.Next() {
 		o := &models.Order{}
@@ -130,6 +136,10 @@ func (p *PostgresStorage) GetOrdersByStatus(ctx context.Context, status string) 
 			return nil, err
 		}
 		orders = append(orders, o)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return orders, nil

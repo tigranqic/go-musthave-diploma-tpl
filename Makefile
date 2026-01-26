@@ -13,8 +13,30 @@ GOPHERMART_PORT=8081
 ACCRUAL_HOST=localhost
 ACCRUAL_PORT=8080
 
-.PHONY: all build test clean fmt vet lint help
+STATICTEST_BIN=./statictest-darwin-arm64
 
+.PHONY: all build test clean fmt vet lint help download-statictest autotest
+
+download-statictest:
+	@if [ ! -f $(STATICTEST_BIN) ]; then \
+		echo "statictest binary not found. Downloading..."; \
+		@mkdir -p .tools; \
+		curl -sSL https://github.com/Yandex-Practicum/go-autotests/releases/latest/download/statictest-darwin-arm64 -o $(STATICTEST_BIN); \
+		chmod +x $(STATICTEST_BIN); \
+	else \
+		echo "Using local statictest binary..."; \
+	fi
+
+vet: download-statictest
+	@echo "Running go vet with statictest..."
+	go vet -vettool=$(STATICTEST_BIN) ./...
+
+all: build test
+
+build-server:
+	go build -o $(SERVER_BIN) $(SERVER_DIR)/*.go
+
+build: build-server
 
 autotest: build
 	@echo "Running local autotests..."
@@ -30,13 +52,6 @@ autotest: build
 		-accrual-port=$(ACCRUAL_PORT) \
 		-accrual-database-uri="$(ACCRUAL_PG_DSN)"
 
-all: build test
-
-build-server:
-	go build -o $(SERVER_BIN) $(SERVER_DIR)/*.go
-
-build: build-server
-
 test: autotest
 
 clean:
@@ -44,9 +59,6 @@ clean:
 
 fmt:
 	go fmt ./...
-
-vet:
-	go vet ./...
 
 lint:
 	golangci-lint run
@@ -57,7 +69,7 @@ help:
 	@echo "  make test            - Run autotests"
 	@echo "  make clean           - Remove binaries"
 	@echo "  make fmt             - Format code"
-	@echo "  make vet             - Run 'go vet'"
+	@echo "  make vet             - Run 'go vet' with statictest"
 	@echo "  make lint            - Run golangci-lint (optional)"
 
 run-server:

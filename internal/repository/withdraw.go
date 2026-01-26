@@ -90,5 +90,10 @@ func (p *PostgresStorage) ListWithdrawals(
 		}
 		res = append(res, w)
 	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return res, nil
 }
