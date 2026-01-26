@@ -25,6 +25,7 @@ const (
 	DefaultServerAddr = "localhost:8081"
 	DefaultDBDSN      = "postgres://postgres:postgres@localhost:15451/go-musthave-diploma-tpl?sslmode=disable"
 	DefaultRateLimit  = 5
+	DefaultJWTSecret  = "defaultsecret"
 )
 
 func getenvInt(key string, def int) (int, bool) {
@@ -64,7 +65,8 @@ func Load(isAgent bool) (*Config, error) {
 
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		log.Fatal("JWT_SECRET is required")
+		secret = DefaultJWTSecret
+		log.Println("JWT_SECRET not set, using default secret for JWT.")
 	}
 
 	envAddr, envAddrSet := getenvString("RUN_ADDRESS", DefaultServerAddr)
