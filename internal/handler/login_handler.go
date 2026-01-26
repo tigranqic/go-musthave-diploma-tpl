@@ -1,0 +1,56 @@
+package handler
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"golang.org/x/crypto/bcrypt"
+)
+
+func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.store.GetUserByLogin(r.Context(), req.Login)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if bcrypt.CompareHashAndPassword(
+		user.PasswordHash,
+		[]byte(req.Password),
+	) != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := h.authSvc.GenerateToken(user.ID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "Authorization",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   24 * 60 * 60,
+	})
+
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"token": token,
+	}); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+}

@@ -2,16 +2,21 @@ package config
 
 import (
 	"flag"
+	"log"
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
-	LogLevel    string
-	LogFormat   string
-	ServerAddr  string
-	DatabaseDSN string
-	RateLimit   int
+	LogLevel      string
+	LogFormat     string
+	ServerAddr    string
+	DatabaseDSN   string
+	AccrualAddr   string
+	RateLimit     int
+	JWTSecret     []byte
+	JWTExpiration time.Duration
 }
 
 const (
@@ -57,27 +62,38 @@ func Load(isAgent bool) (*Config, error) {
 		return def
 	}
 
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
+
 	envAddr, envAddrSet := getenvString("RUN_ADDRESS", DefaultServerAddr)
 	envDBDSN, envDBDSNSet := getenvString("DATABASE_URI", DefaultDBDSN)
+	envAccrualAddress, envAccrualAddressSet := getenvString("ACCRUAL_SYSTEM_ADDRESS", "")
 	envRateLimit, envRateLimitSet := getenvInt("RATE_LIMIT", DefaultRateLimit)
 
 	logLevel := flag.String("log-level", DefaultLogLevel, "Log level: debug, info, warn, error")
 	logFormat := flag.String("log-format", DefaultLogFormat, "Log format: text or json")
 	serverAddrFlag := flag.String("a", DefaultServerAddr, "HTTP server address")
 	dbDSNFlag := flag.String("d", DefaultDBDSN, "Database DSN connection string")
+	accrualAddressFlag := flag.String("r", "", "Accrual Address connection string")
 	rateLimitFlag := flag.Int("l", DefaultRateLimit, "Rate limit")
 
 	flag.Parse()
 
 	serverAddr := chooseString(envAddr, envAddrSet, *serverAddrFlag, DefaultServerAddr)
 	databaseDSN := chooseString(envDBDSN, envDBDSNSet, *dbDSNFlag, DefaultDBDSN)
+	accrualAddress := chooseString(envAccrualAddress, envAccrualAddressSet, *accrualAddressFlag, "")
 	rateLimit := chooseInt(envRateLimit, envRateLimitSet, *rateLimitFlag, DefaultRateLimit)
 
 	return &Config{
-		LogLevel:    *logLevel,
-		LogFormat:   *logFormat,
-		ServerAddr:  serverAddr,
-		DatabaseDSN: databaseDSN,
-		RateLimit:   rateLimit,
+		LogLevel:      *logLevel,
+		LogFormat:     *logFormat,
+		ServerAddr:    serverAddr,
+		DatabaseDSN:   databaseDSN,
+		RateLimit:     rateLimit,
+		AccrualAddr:   accrualAddress,
+		JWTSecret:     []byte(secret),
+		JWTExpiration: 24 * time.Hour,
 	}, nil
 }

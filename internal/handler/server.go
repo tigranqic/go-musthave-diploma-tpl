@@ -1,28 +1,47 @@
 package handler
 
 import (
+	"database/sql"
 	"net/http"
 
-	"github.com/tigranqic/go-musthave-diploma-tpl/internal/middleware"
-	"github.com/tigranqic/go-musthave-diploma-tpl/internal/repository"
+	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
-	"github.com/go-chi/chi/v5"
-
-	"database/sql"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/accrual"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/config"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/middleware"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/repository"
 )
 
 type Handler struct {
-	store repository.Storage
-	db    *sql.DB
-	log   *zap.Logger
+	store   repository.Storage
+	db      *sql.DB
+	log     *zap.Logger
+	authSvc auth.Service
+	worker  *accrual.Worker
 }
 
-func NewHandler(store repository.Storage, db *sql.DB, log *zap.Logger) *Handler {
+func NewHandler(
+	store repository.Storage,
+	db *sql.DB,
+	log *zap.Logger,
+	authSvc auth.Service,
+	cfg config.Config,
+) *Handler {
+
+	worker := accrual.NewWorker(
+		store,
+		cfg.AccrualAddr,
+		log,
+	)
+
 	return &Handler{
-		store: store,
-		db:    db,
-		log:   log,
+		store:   store,
+		db:      db,
+		log:     log,
+		authSvc: authSvc,
+		worker:  worker,
 	}
 }
 
@@ -33,6 +52,18 @@ func (h *Handler) Router() http.Handler {
 	r.Use(middleware.GzipCompress)
 
 	r.Get("/ping", h.pingHandler)
+	r.Post("/api/user/register", h.RegisterHandler)
+	r.Post("/api/user/login", h.LoginHandler)
+
+	r.Route("/api/user", func(r chi.Router) {
+		r.Use(middleware.Auth(h.authSvc, h.log))
+
+		r.Get("/orders", h.ListOrdersHandler)
+		r.Post("/orders", h.CreateOrderHandler)
+		r.Get("/balance", h.GetBalanceHandler)
+		r.Post("/balance/withdraw", h.WithdrawHandler)
+		r.Get("/withdrawals", h.WithdrawalsHandler)
+	})
 
 	return r
 }
@@ -51,4 +82,8 @@ func (h *Handler) pingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) Store() repository.Storage {
+	return h.store
 }

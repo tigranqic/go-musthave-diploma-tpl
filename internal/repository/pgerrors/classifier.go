@@ -10,6 +10,18 @@ import (
 type PGErrorClassification int
 
 const (
+	uniqueViolation = "23505"
+)
+
+func IsUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return string(pqErr.Code) == uniqueViolation
+	}
+	return false
+}
+
+const (
 	NonRetriable PGErrorClassification = iota
 	Retriable
 )

@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	_ "github.com/lib/pq"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/config"
 	"go.uber.org/zap"
 )
 
@@ -16,10 +16,10 @@ func TestPingHandler_OK(t *testing.T) {
 	defer func() {
 		_ = db.Close()
 	}()
+
 	log := zap.NewNop()
 
-	// store не используется в ping, можно передать nil
-	h := NewHandler(nil, db, log)
+	h := NewHandler(nil, db, log, nil, config.Config{})
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rec := httptest.NewRecorder()
@@ -30,6 +30,7 @@ func TestPingHandler_OK(t *testing.T) {
 	defer func() {
 		_ = res.Body.Close()
 	}()
+
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", res.StatusCode)
 	}
@@ -38,7 +39,7 @@ func TestPingHandler_OK(t *testing.T) {
 func TestPingHandler_DBIsNil(t *testing.T) {
 	log := zap.NewNop()
 
-	h := NewHandler(nil, nil, log)
+	h := NewHandler(nil, nil, log, nil, config.Config{})
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rec := httptest.NewRecorder()
@@ -58,20 +59,18 @@ func TestPingHandler_DBIsNil(t *testing.T) {
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URI")
-	if dsn == "" {
-		t.Fatal("DATABASE_URI is not set")
-	}
+	// dsn := os.Getenv("DATABASE_URI")
+	// if dsn == "" {
+	// 	t.Fatal("DATABASE_URI is not set")
+	// }
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:15451/go-musthave-diploma-tpl?sslmode=disable")
 	if err != nil {
 		t.Fatalf("failed to open test DB: %v", err)
 	}
 
 	if err := db.Ping(); err != nil {
-		defer func() {
-			_ = db.Close()
-		}()
+		_ = db.Close()
 		t.Fatalf("failed to ping test DB: %v", err)
 	}
 

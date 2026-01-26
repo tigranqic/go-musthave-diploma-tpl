@@ -1,12 +1,34 @@
 SERVER_DIR=cmd/gophermart
-
+ACCRUAL_DIR=cmd/accrual
 SERVER_BIN=$(SERVER_DIR)/gophermart
-
+ACCRUAL_BIN=$(ACCRUAL_DIR)/accrual_darwin_arm64
 MIGRATIONS_DIR=./migrations
 GOOSE_BIN=goose
 PG_DSN=${DATABASE_DSN}
+ACCRUAL_PG_DSN=${ACCRUAL_DB_DSN}
+
+GOPHERMARTTEST_BIN=./gophermarttest-darwin-arm64
+GOPHERMART_HOST=localhost
+GOPHERMART_PORT=8081
+ACCRUAL_HOST=localhost
+ACCRUAL_PORT=8080
 
 .PHONY: all build test clean fmt vet lint help
+
+
+autotest: build
+	@echo "Running local autotests..."
+	$(GOPHERMARTTEST_BIN) \
+		-test.v \
+		-test.run=^TestGophermart$$ \
+		-gophermart-binary-path=$(SERVER_BIN) \
+		-gophermart-host=$(GOPHERMART_HOST) \
+		-gophermart-port=$(GOPHERMART_PORT) \
+		-gophermart-database-uri="$(PG_DSN)" \
+		-accrual-binary-path=$(ACCRUAL_BIN) \
+		-accrual-host=$(ACCRUAL_HOST) \
+		-accrual-port=$(ACCRUAL_PORT) \
+		-accrual-database-uri="$(ACCRUAL_PG_DSN)"
 
 all: build test
 
@@ -15,10 +37,10 @@ build-server:
 
 build: build-server
 
-test:
+test: autotest
 
 clean:
-	rm -f $(SERVER_BIN) $(AGENT_BIN)
+	rm -f $(SERVER_BIN)
 
 fmt:
 	go fmt ./...
@@ -40,6 +62,9 @@ help:
 
 run-server:
 	$(SERVER_BIN) -a=localhost:8081
+
+run-accrual:
+	$(ACCRUAL_BIN)
 
 migrate-new:
 	@echo "Creating new migration: $(name)"
