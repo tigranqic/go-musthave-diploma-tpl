@@ -170,6 +170,9 @@ func TestRegisterHandler(t *testing.T) {
 			h.RegisterHandler(w, req)
 
 			resp := w.Result()
+			defer func() {
+				_ = resp.Body.Close()
+			}()
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 
 			var body map[string]string

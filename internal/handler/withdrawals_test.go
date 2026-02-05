@@ -124,6 +124,9 @@ func TestWithdrawHandlerTable(t *testing.T) {
 			h.WithdrawHandler(w, req)
 
 			resp := w.Result()
+			defer func() {
+				_ = resp.Body.Close()
+			}()
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 		})
 	}
@@ -168,6 +171,9 @@ func TestWithdrawalsHandlerTable(t *testing.T) {
 			h.WithdrawalsHandler(w, req)
 
 			resp := w.Result()
+			defer func() {
+				_ = resp.Body.Close()
+			}()
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 
 			if tt.wantStatus == http.StatusOK {
