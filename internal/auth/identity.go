@@ -4,15 +4,15 @@ import (
 	"context"
 )
 
-type keyType struct{}
+type ContextKey string
 
-var key = keyType{}
+const IdentityKey ContextKey = "auth.identity"
 
 func With(ctx context.Context, id Identity) context.Context {
-	return context.WithValue(ctx, key, id)
+	return context.WithValue(ctx, IdentityKey, id)
 }
 
 func From(ctx context.Context) (Identity, bool) {
-	id, ok := ctx.Value(key).(Identity)
+	id, ok := ctx.Value(IdentityKey).(Identity)
 	return id, ok
 }

@@ -73,7 +73,7 @@ help:
 	@echo "  make lint            - Run golangci-lint (optional)"
 
 run-server:
-	$(SERVER_BIN) -a=localhost:8081
+	$(SERVER_BIN) -a=localhost:8081 -r=http://localhost:8080
 
 run-accrual:
 	$(ACCRUAL_BIN)

@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+const (
+	msgFailedReadGzipBody = "failed to read gzip body"
+)
+
 func GzipCompress(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
@@ -57,7 +61,7 @@ func GzipDecompress(next http.Handler) http.Handler {
 		if r.Header.Get("Content-Encoding") == "gzip" {
 			gz, err := gzip.NewReader(r.Body)
 			if err != nil {
-				http.Error(w, "failed to read gzip body", http.StatusBadRequest)
+				http.Error(w, msgFailedReadGzipBody, http.StatusBadRequest)
 				return
 			}
 			defer func() {

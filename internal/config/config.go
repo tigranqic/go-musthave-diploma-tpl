@@ -28,23 +28,38 @@ const (
 	DefaultJWTSecret  = "defaultsecret"
 )
 
-func getenvInt(key string, def int) (int, bool) {
-	if val := os.Getenv(key); val != "" {
-		if n, err := strconv.Atoi(val); err == nil && n > 0 {
-			return n, true
-		}
-	}
-	return def, false
+func getenvString(key string) (string, bool) {
+	val, ok := os.LookupEnv(key)
+	return val, ok
 }
 
-func getenvString(key string, def string) (string, bool) {
-	if val := os.Getenv(key); val != "" {
-		return val, true
+func getenvInt(key string) (int, bool) {
+	val, ok := os.LookupEnv(key)
+	if !ok {
+		return 0, false
 	}
-	return def, false
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
-func Load(isAgent bool) (*Config, error) {
+func Load() (*Config, error) {
+	logLevelFlag := flag.String("log-level", DefaultLogLevel, "Log level: debug, info, warn, error")
+	logFormatFlag := flag.String("log-format", DefaultLogFormat, "Log format: text or json")
+	serverAddrFlag := flag.String("a", DefaultServerAddr, "HTTP server address")
+	dbDSNFlag := flag.String("d", DefaultDBDSN, "Database DSN connection string")
+	accrualAddrFlag := flag.String("r", "", "Accrual Address connection string")
+	rateLimitFlag := flag.Int("l", DefaultRateLimit, "Rate limit")
+	flag.Parse()
+
+	envServerAddr, envServerSet := getenvString("RUN_ADDRESS")
+	envDBDSN, envDBSet := getenvString("DATABASE_URI")
+	envAccrualAddr, envAccrualSet := getenvString("ACCRUAL_SYSTEM_ADDRESS")
+	envRateLimit, envRateSet := getenvInt("RATE_LIMIT")
+	envJWTSecret, envJWTSet := getenvString("JWT_SECRET")
+
 	chooseString := func(envVal string, envSet bool, flagVal string, def string) string {
 		if envSet {
 			return envVal
@@ -63,39 +78,26 @@ func Load(isAgent bool) (*Config, error) {
 		return def
 	}
 
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = DefaultJWTSecret
-		log.Println("JWT_SECRET not set, using default secret for JWT.")
+	serverAddr := chooseString(envServerAddr, envServerSet, *serverAddrFlag, DefaultServerAddr)
+	databaseDSN := chooseString(envDBDSN, envDBSet, *dbDSNFlag, DefaultDBDSN)
+	accrualAddr := chooseString(envAccrualAddr, envAccrualSet, *accrualAddrFlag, "")
+	rateLimit := chooseInt(envRateLimit, envRateSet, *rateLimitFlag, DefaultRateLimit)
+
+	jwtSecret := DefaultJWTSecret
+	if envJWTSet && envJWTSecret != "" {
+		jwtSecret = envJWTSecret
+	} else {
+		log.Println("JWT_SECRET not set or empty, using default secret for JWT.")
 	}
 
-	envAddr, envAddrSet := getenvString("RUN_ADDRESS", DefaultServerAddr)
-	envDBDSN, envDBDSNSet := getenvString("DATABASE_URI", DefaultDBDSN)
-	envAccrualAddress, envAccrualAddressSet := getenvString("ACCRUAL_SYSTEM_ADDRESS", "")
-	envRateLimit, envRateLimitSet := getenvInt("RATE_LIMIT", DefaultRateLimit)
-
-	logLevel := flag.String("log-level", DefaultLogLevel, "Log level: debug, info, warn, error")
-	logFormat := flag.String("log-format", DefaultLogFormat, "Log format: text or json")
-	serverAddrFlag := flag.String("a", DefaultServerAddr, "HTTP server address")
-	dbDSNFlag := flag.String("d", DefaultDBDSN, "Database DSN connection string")
-	accrualAddressFlag := flag.String("r", "", "Accrual Address connection string")
-	rateLimitFlag := flag.Int("l", DefaultRateLimit, "Rate limit")
-
-	flag.Parse()
-
-	serverAddr := chooseString(envAddr, envAddrSet, *serverAddrFlag, DefaultServerAddr)
-	databaseDSN := chooseString(envDBDSN, envDBDSNSet, *dbDSNFlag, DefaultDBDSN)
-	accrualAddress := chooseString(envAccrualAddress, envAccrualAddressSet, *accrualAddressFlag, "")
-	rateLimit := chooseInt(envRateLimit, envRateLimitSet, *rateLimitFlag, DefaultRateLimit)
-
 	return &Config{
-		LogLevel:      *logLevel,
-		LogFormat:     *logFormat,
+		LogLevel:      *logLevelFlag,
+		LogFormat:     *logFormatFlag,
 		ServerAddr:    serverAddr,
 		DatabaseDSN:   databaseDSN,
+		AccrualAddr:   accrualAddr,
 		RateLimit:     rateLimit,
-		AccrualAddr:   accrualAddress,
-		JWTSecret:     []byte(secret),
+		JWTSecret:     []byte(jwtSecret),
 		JWTExpiration: 24 * time.Hour,
 	}, nil
 }

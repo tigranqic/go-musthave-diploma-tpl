@@ -1,3 +1,5 @@
+//go:build integration
+
 package handler_test
 
 import (
@@ -7,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth/jwt"
@@ -21,11 +24,15 @@ import (
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	// dsn := os.Getenv("DATABASE_URI")
-	// if dsn == "" {
-	// 	t.Fatal("DATABASE_URI is not set")
-	// }
-	db, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:15451/go-musthave-diploma-tpl?sslmode=disable")
+	dsn, ok := os.LookupEnv("DATABASE_URI")
+	if !ok {
+		t.Skip("DATABASE_URI not set, skipping integration test")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +56,7 @@ func setupHandler(t *testing.T) *handler.Handler {
 
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 3600)
+	authSvc := jwt.New(log, []byte("testsecret"), 3600)
 
 	return handler.NewHandler(store, db, log, authSvc, config.Config{})
 }
@@ -73,7 +80,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 		_ = res.Body.Close()
 	}()
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d", res.StatusCode)
+		t.Fatalf("expected %dOK, got %d", http.StatusOK, res.StatusCode)
 	}
 
 	var resp map[string]string
@@ -107,7 +114,7 @@ func TestRegisterHandler_LoginTaken(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409 Conflict, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusConflict, res.StatusCode)
 	}
 }
 
@@ -135,7 +142,7 @@ func TestLoginHandler_Success(t *testing.T) {
 		_ = res.Body.Close()
 	}()
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusOK, res.StatusCode)
 	}
 
 	var resp map[string]string
@@ -170,7 +177,7 @@ func TestLoginHandler_WrongPassword(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 Unauthorized, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusUnauthorized, res.StatusCode)
 	}
 }
 
@@ -193,6 +200,6 @@ func TestLoginHandler_UserNotFound(t *testing.T) {
 		_ = res.Body.Close()
 	}()
 	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 Unauthorized, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusUnauthorized, res.StatusCode)
 	}
 }

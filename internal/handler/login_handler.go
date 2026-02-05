@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -14,13 +15,13 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	user, err := h.store.GetUserByLogin(r.Context(), req.Login)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 
@@ -28,13 +29,14 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		user.PasswordHash,
 		[]byte(req.Password),
 	) != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 
 	token, err := h.authSvc.GenerateToken(user.ID)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		h.log.Error("generate token failed", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -50,7 +52,8 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(map[string]string{
 		"token": token,
 	}); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		h.log.Error("encode token failed", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 }

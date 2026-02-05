@@ -8,17 +8,21 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/accrual"
-	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth/jwt"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/config"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/middleware"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/repository"
+)
+
+const (
+	msgDBNotInitialized = "database not initialized"
 )
 
 type Handler struct {
 	store   repository.Storage
 	db      *sql.DB
 	log     *zap.Logger
-	authSvc auth.Service
+	authSvc jwt.Service
 	worker  *accrual.Worker
 }
 
@@ -26,7 +30,7 @@ func NewHandler(
 	store repository.Storage,
 	db *sql.DB,
 	log *zap.Logger,
-	authSvc auth.Service,
+	authSvc jwt.Service,
 	cfg config.Config,
 ) *Handler {
 
@@ -71,7 +75,7 @@ func (h *Handler) Router() http.Handler {
 func (h *Handler) pingHandler(w http.ResponseWriter, r *http.Request) {
 	if h.db == nil {
 		h.log.Error("db is nil")
-		http.Error(w, "database not initialized", http.StatusInternalServerError)
+		http.Error(w, msgDBNotInitialized, http.StatusInternalServerError)
 		return
 	}
 

@@ -1,9 +1,12 @@
+//go:build integration
+
 package handler
 
 import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -32,7 +35,7 @@ func TestPingHandler_OK(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", res.StatusCode)
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.StatusCode)
 	}
 }
 
@@ -52,19 +55,22 @@ func TestPingHandler_DBIsNil(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("expected status 500, got %d", res.StatusCode)
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, res.StatusCode)
 	}
 }
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	// dsn := os.Getenv("DATABASE_URI")
-	// if dsn == "" {
-	// 	t.Fatal("DATABASE_URI is not set")
-	// }
+	dsn, ok := os.LookupEnv("DATABASE_URI")
+	if !ok {
+		t.Skip("DATABASE_URI not set, skipping integration test")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	db, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:15451/go-musthave-diploma-tpl?sslmode=disable")
 	if err != nil {
 		t.Fatalf("failed to open test DB: %v", err)
 	}
