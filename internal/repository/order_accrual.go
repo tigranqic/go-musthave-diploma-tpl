@@ -52,7 +52,6 @@ func (p *PostgresStorage) UpdateOrderAccrual(ctx context.Context, orderNumber st
 	defer func() {
 		if p := recover(); p != nil {
 			if err := tx.Rollback(); err != nil {
-				// Log the rollback error if needed
 				p = err
 			}
 			panic(p)

@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	msgOrderExists        = "номер заказа уже был загружен пользователем"
-	msgOrderAccepted      = "новый номер заказа принят в обработку"
-	msgBadRequest         = "неверный формат запроса"
-	msgOrderOwnedByOther  = "номер заказа уже был загружен другим пользователем"
-	msgInvalidOrderNumber = "неверный формат номера заказа"
+	msgOrderExists        = "order number has already been submitted by this user"
+	msgOrderAccepted      = "new order number accepted for processing"
+	msgBadRequest         = "invalid request format"
+	msgOrderOwnedByOther  = "order number has already been submitted by another user"
+	msgInvalidOrderNumber = "invalid order number format"
 )
 
 func (h *Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +30,7 @@ func (h *Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 	identity, ok := auth.From(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
 			_, err := w.Write([]byte(msgOrderExists))
 			if err != nil {
 				h.log.Error("failed to write response", zap.Error(err))
-				http.Error(w, "internal error", http.StatusInternalServerError)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				return
 			}
 		case errors.Is(err, repository.ErrOrderOwnedByOther):
@@ -74,7 +74,7 @@ func (h *Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
 
 		default:
 			h.log.Error("create order failed", zap.Error(err))
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -87,14 +87,14 @@ func (h *Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	identity, ok := auth.From(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 
 	orders, err := h.store.GetOrdersByUserID(r.Context(), identity.UserID)
 	if err != nil {
 		h.log.Error("get orders failed", zap.Error(err))
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 

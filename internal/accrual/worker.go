@@ -5,93 +5,156 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/httpclient"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/repository"
 	"go.uber.org/zap"
 )
 
 type Worker struct {
-	store        repository.Storage
-	client       *http.Client
-	baseURL      string
-	logger       *zap.Logger
-	pollInterval time.Duration
+	store   repository.Storage
+	client  *httpclient.RetryClient
+	baseURL string
+	logger  *zap.Logger
+
+	PollInterval time.Duration
+	WorkerCount  int
+
+	SleepUntil atomic.Int64
 }
 
 func NewWorker(store repository.Storage, baseURL string, logger *zap.Logger) *Worker {
 	return &Worker{
 		store:        store,
-		client:       &http.Client{Timeout: 10 * time.Second},
+		client:       httpclient.NewRetryClient(),
 		baseURL:      baseURL,
 		logger:       logger,
-		pollInterval: 2 * time.Second,
+		PollInterval: 500 * time.Millisecond,
+		WorkerCount:  5,
 	}
 }
 
-type accrualResponse struct {
-	Order   string   `json:"order"`
-	Status  string   `json:"status"`
-	Accrual *float64 `json:"accrual,omitempty"`
+func (w *Worker) Run(ctx context.Context) {
+	wg := &sync.WaitGroup{}
+	for i := 0; i < w.WorkerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w.workerLoop(ctx)
+		}()
+	}
+	<-ctx.Done()
+	wg.Wait()
+	w.logger.Info("accrual worker stopped")
 }
 
-func (w *Worker) Run(ctx context.Context) {
-	ticker := time.NewTicker(w.pollInterval)
-	defer ticker.Stop()
-
+func (w *Worker) workerLoop(ctx context.Context) {
 	for {
-		select {
-		case <-ticker.C:
-			w.processOrders(ctx)
-		case <-ctx.Done():
-			w.logger.Info("accrual worker stopped")
+		if ctx.Err() != nil || w.waitIfSleeping(ctx) {
 			return
+		}
+
+		orders, err := w.store.GetOrdersForAccrual(ctx)
+		if err != nil {
+			w.logger.Error("failed to get orders", zap.Error(err))
+			return
+		}
+
+		if len(orders) == 0 {
+			time.Sleep(w.PollInterval)
+			continue
+		}
+
+		for _, order := range orders {
+			if ctx.Err() != nil || w.waitIfSleeping(ctx) {
+				return
+			}
+			if err := w.processOrder(ctx, order.Number); err != nil {
+				w.logger.Error("failed to process order", zap.String("order", order.Number), zap.Error(err))
+			}
 		}
 	}
 }
 
-func (w *Worker) processOrders(ctx context.Context) {
-	orders, err := w.store.GetOrdersForAccrual(ctx)
-	if err != nil {
-		w.logger.Error("failed to fetch orders for accrual", zap.Error(err))
-		return
-	}
-
-	for _, o := range orders {
-		w.processOrder(ctx, o.Number)
-	}
-}
-
-func (w *Worker) processOrder(ctx context.Context, number string) {
+func (w *Worker) processOrder(ctx context.Context, number string) error {
+	w.logger.Info("processing order", zap.String("baseURL", w.baseURL), zap.String("order", number))
 	url := fmt.Sprintf("%s/api/orders/%s", w.baseURL, number)
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := w.client.Do(req)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		w.logger.Error("failed request to accrual system", zap.String("order", number), zap.Error(err))
-		return
+		return err
+	}
+
+	resp, err := w.client.Do(ctx, req)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
-
 	switch resp.StatusCode {
-	case 200:
-		var data accrualResponse
+	case http.StatusTooManyRequests:
+		w.handle429(resp)
+		return nil
+	case http.StatusNoContent:
+		return nil
+	case http.StatusOK:
+		var data struct {
+			Order   string   `json:"order"`
+			Status  string   `json:"status"`
+			Accrual *float64 `json:"accrual,omitempty"`
+		}
 		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-			w.logger.Error("failed to decode accrual response", zap.Error(err))
+			return err
+		}
+		return w.store.UpdateOrderAccrual(ctx, data.Order, data.Status, data.Accrual)
+	default:
+		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+}
+
+func (w *Worker) handle429(resp *http.Response) {
+	retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+	until := time.Now().Add(retryAfter).UnixNano()
+
+	for {
+		old := w.SleepUntil.Load()
+		if until <= old {
 			return
 		}
-		if err := w.store.UpdateOrderAccrual(ctx, data.Order, data.Status, data.Accrual); err != nil {
-			w.logger.Error("failed to update order accrual", zap.String("order", data.Order), zap.Error(err))
+		if w.SleepUntil.CompareAndSwap(old, until) {
+			w.logger.Warn("received 429, sleeping all workers", zap.Duration("sleep", retryAfter))
+			return
 		}
-		w.logger.Warn("accrual system update", zap.String("order", number))
-
-	case 204:
-
-	case 429:
-		w.logger.Warn("too many requests to accrual system", zap.String("order", number))
-	default:
-		w.logger.Error("unexpected status from accrual system", zap.String("order", number), zap.Int("status", resp.StatusCode))
 	}
+}
+
+func (w *Worker) waitIfSleeping(ctx context.Context) bool {
+	until := w.SleepUntil.Load()
+	if until == 0 {
+		return false
+	}
+	remaining := time.Until(time.Unix(0, until))
+	if remaining <= 0 {
+		return false
+	}
+	select {
+	case <-time.After(remaining):
+		return false
+	case <-ctx.Done():
+		return true
+	}
+}
+
+func parseRetryAfter(header string) time.Duration {
+	if header == "" {
+		return 2 * time.Second
+	}
+	if sec, err := strconv.Atoi(header); err == nil {
+		return time.Duration(sec) * time.Second
+	}
+	return 2 * time.Second
 }

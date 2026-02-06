@@ -7,14 +7,11 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var log *zap.Logger
-
-func Init(levelStr, formatStr string) {
+func New(levelStr, formatStr string) (*zap.Logger, error) {
 	level := parseLevel(levelStr)
 	format := strings.ToLower(strings.TrimSpace(formatStr))
 
 	var cfg zap.Config
-
 	switch format {
 	case "json":
 		cfg = zap.NewProductionConfig()
@@ -24,15 +21,7 @@ func Init(levelStr, formatStr string) {
 
 	cfg.Level = zap.NewAtomicLevelAt(level)
 
-	var err error
-	log, err = cfg.Build()
-	if err != nil {
-		panic(err)
-	}
-
-	log.Info("logger initialized",
-		zap.String("level", level.String()),
-		zap.String("format", formatOrDefault(format)))
+	return cfg.Build()
 }
 
 func parseLevel(levelStr string) zapcore.Level {
@@ -46,18 +35,4 @@ func parseLevel(levelStr string) zapcore.Level {
 	default:
 		return zapcore.InfoLevel
 	}
-}
-
-func formatOrDefault(format string) string {
-	if format == "" {
-		return "text"
-	}
-	return format
-}
-
-func Get() *zap.Logger {
-	if log == nil {
-		return zap.NewNop()
-	}
-	return log
 }

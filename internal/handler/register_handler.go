@@ -72,7 +72,7 @@ func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	token, err := h.authSvc.GenerateToken(userID)
 	if err != nil {
-		h.log.Error("token generation failed", zap.Error(err))
+		h.log.Error("token generation failed", zap.Error(err), zap.Int64("user_id", userID))
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

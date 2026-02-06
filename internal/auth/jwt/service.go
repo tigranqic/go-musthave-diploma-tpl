@@ -2,21 +2,32 @@ package jwt
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth"
 )
 
-type Service struct {
+type JWTService struct {
+	log    *zap.Logger
 	secret []byte
 	ttl    time.Duration
 }
 
-func New(secret []byte, ttl time.Duration) *Service {
-	return &Service{secret: secret, ttl: ttl}
+type Service interface {
+	GenerateToken(userID int64) (string, error)
+	Authenticate(ctx context.Context, token string) (*auth.Identity, error)
+}
+
+func New(log *zap.Logger, secret []byte, ttl time.Duration) Service {
+	return &JWTService{
+		log:    log,
+		secret: secret,
+		ttl:    ttl,
+	}
 }
 
 type claims struct {
@@ -24,37 +35,36 @@ type claims struct {
 	jwt.RegisteredClaims
 }
 
-func (s *Service) GenerateToken(userID int64) (string, error) {
+func (s *JWTService) GenerateToken(userID int64) (string, error) {
+	now := time.Now()
 	c := claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.ttl)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.ttl)),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
-	return token.SignedString(s.secret)
+	signed, err := token.SignedString(s.secret)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+
+	return signed, nil
 }
 
-func (s *Service) Authenticate(
-	_ context.Context,
-	tokenStr string,
-) (*auth.Identity, error) {
+func (s *JWTService) Authenticate(ctx context.Context, tokenStr string) (*auth.Identity, error) {
 	c := &claims{}
-	token, err := jwt.ParseWithClaims(
-		tokenStr,
-		c,
-		func(t *jwt.Token) (interface{}, error) {
-			return s.secret, nil
-		},
-	)
 
-	if err != nil {
-		if errors.Is(err, jwt.ErrTokenExpired) {
-			return nil, auth.ErrExpiredToken
+	token, err := jwt.ParseWithClaims(tokenStr, c, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %T", t.Method)
 		}
-		return nil, auth.ErrInvalidToken
+		return s.secret, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("parse jwt token: %w", err)
 	}
 
 	if !token.Valid {

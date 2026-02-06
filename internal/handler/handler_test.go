@@ -1,3 +1,5 @@
+//go:build integration
+
 package handler_test
 
 import (
@@ -7,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -24,12 +27,15 @@ import (
 func setupDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	// dsn := os.Getenv("DATABASE_URI")
-	// if dsn == "" {
-	// 	t.Fatal("DATABASE_URI is not set")
-	// }
+	dsn, ok := os.LookupEnv("DATABASE_URI")
+	if !ok {
+		t.Skip("DATABASE_URI not set, skipping integration test")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	db, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:15451/go-musthave-diploma-tpl?sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +70,7 @@ func TestCreateOrder_Accepted(t *testing.T) {
 	}()
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	userID := createUser(t, store, "user1", "passwordtest")
 
@@ -92,7 +98,7 @@ func TestCreateOrder_Accepted(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusAccepted, res.StatusCode)
 	}
 }
 
@@ -103,7 +109,7 @@ func TestCreateOrder_AlreadyExistsSameUser(t *testing.T) {
 	}()
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	userID := createUser(t, store, "user2", "passwordtest")
 
@@ -133,7 +139,7 @@ func TestCreateOrder_AlreadyExistsSameUser(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusOK, res.StatusCode)
 	}
 }
 
@@ -144,7 +150,7 @@ func TestCreateOrder_OwnedByAnotherUser(t *testing.T) {
 	}()
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	user1 := createUser(t, store, "user3", "passwordtest")
 	user2 := createUser(t, store, "user4", "passwordtest")
@@ -175,7 +181,7 @@ func TestCreateOrder_OwnedByAnotherUser(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusConflict, res.StatusCode)
 	}
 }
 
@@ -186,7 +192,7 @@ func TestListOrders_OK(t *testing.T) {
 	}()
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	userID := createUser(t, store, "user5", "passwordtest")
 
@@ -216,7 +222,7 @@ func TestListOrders_OK(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusOK, res.StatusCode)
 	}
 }
 
@@ -227,7 +233,7 @@ func TestListOrders_Empty(t *testing.T) {
 	}()
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	userID := createUser(t, store, "user6", "passwordtest")
 	token, _ := authSvc.GenerateToken(userID)
@@ -250,7 +256,7 @@ func TestListOrders_Empty(t *testing.T) {
 	}()
 
 	if res.StatusCode != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusNoContent, res.StatusCode)
 	}
 }
 
@@ -278,7 +284,7 @@ func TestGetBalanceHandler(t *testing.T) {
 
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	userID := createUserWithBalance(t, store, "user1", "password", 100.5)
 
@@ -293,7 +299,7 @@ func TestGetBalanceHandler(t *testing.T) {
 
 	res, _ := http.DefaultClient.Do(req)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusOK, res.StatusCode)
 	}
 	defer func() {
 		_ = res.Body.Close()
@@ -322,7 +328,7 @@ func TestWithdrawHandler(t *testing.T) {
 	}()
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	userID := createUserWithBalance(t, store, "user1", "password", 200)
 
@@ -343,7 +349,7 @@ func TestWithdrawHandler(t *testing.T) {
 
 	res, _ := http.DefaultClient.Do(req)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusOK, res.StatusCode)
 	}
 	defer func() {
 		_ = res.Body.Close()
@@ -364,7 +370,7 @@ func TestWithdrawalsHandler(t *testing.T) {
 	}()
 	log := zap.NewNop()
 	store := repository.NewPostgresStorage(db, log)
-	authSvc := jwt.New([]byte("testsecret"), 24*time.Hour)
+	authSvc := jwt.New(log, []byte("testsecret"), 24*time.Hour)
 
 	userID := createUserWithBalance(t, store, "user1", "password", 300)
 
@@ -382,7 +388,7 @@ func TestWithdrawalsHandler(t *testing.T) {
 
 	res, _ := http.DefaultClient.Do(req)
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusOK, res.StatusCode)
 	}
 	defer func() {
 		_ = res.Body.Close()
