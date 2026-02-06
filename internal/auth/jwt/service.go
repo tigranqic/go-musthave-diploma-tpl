@@ -2,7 +2,7 @@ package jwt
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -48,8 +48,7 @@ func (s *JWTService) GenerateToken(userID int64) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
 	signed, err := token.SignedString(s.secret)
 	if err != nil {
-		s.log.Error("failed to sign token", zap.Error(err), zap.Int64("user_id", userID))
-		return "", err
+		return "", fmt.Errorf("failed to sign token: %w", err)
 	}
 
 	return signed, nil
@@ -60,21 +59,15 @@ func (s *JWTService) Authenticate(ctx context.Context, tokenStr string) (*auth.I
 
 	token, err := jwt.ParseWithClaims(tokenStr, c, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+			return nil, fmt.Errorf("unexpected signing method: %T", t.Method)
 		}
 		return s.secret, nil
 	})
 	if err != nil {
-		if errors.Is(err, jwt.ErrTokenExpired) {
-			s.log.Warn("token expired", zap.Error(err))
-			return nil, auth.ErrExpiredToken
-		}
-		s.log.Warn("invalid token", zap.Error(err))
-		return nil, auth.ErrInvalidToken
+		return nil, fmt.Errorf("parse jwt token: %w", err)
 	}
 
 	if !token.Valid {
-		s.log.Warn("invalid token: token is not valid")
 		return nil, auth.ErrInvalidToken
 	}
 

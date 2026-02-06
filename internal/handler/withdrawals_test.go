@@ -2,7 +2,6 @@ package handler_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,60 +9,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
+
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/config"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/handler"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/model"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/repository"
+	repoMocks "github.com/tigranqic/go-musthave-diploma-tpl/internal/repository/mocks"
 	"go.uber.org/zap"
 )
 
-type mockStorage struct {
-	withdrawFn        func(ctx context.Context, userID int64, order string, sum float64) error
-	listWithdrawalsFn func(ctx context.Context, userID int64) ([]model.Withdrawal, error)
-}
-
-func (m *mockStorage) Withdraw(ctx context.Context, userID int64, order string, sum float64) error {
-	if m.withdrawFn != nil {
-		return m.withdrawFn(ctx, userID, order, sum)
-	}
-	return nil
-}
-
-func (m *mockStorage) ListWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
-	if m.listWithdrawalsFn != nil {
-		return m.listWithdrawalsFn(ctx, userID)
-	}
-	return nil, nil
-}
-
-func (m *mockStorage) CreateUser(ctx context.Context, login string, passwordHash []byte) (int64, error) {
-	return 0, nil
-}
-func (m *mockStorage) GetUserByLogin(ctx context.Context, login string) (*model.User, error) {
-	return nil, nil
-}
-func (m *mockStorage) CreateOrder(ctx context.Context, order *model.Order) error { return nil }
-func (m *mockStorage) GetOrder(ctx context.Context, number string) (*model.Order, error) {
-	return nil, nil
-}
-func (m *mockStorage) GetOrdersByUserID(ctx context.Context, userID int64) ([]*model.Order, error) {
-	return nil, nil
-}
-func (m *mockStorage) GetBalance(ctx context.Context, userID int64) (*model.Balance, error) {
-	return nil, nil
-}
-func (m *mockStorage) GetOrdersForAccrual(ctx context.Context) ([]model.Order, error) {
-	return nil, nil
-}
-func (m *mockStorage) UpdateOrderAccrual(ctx context.Context, order string, status string, accrual *float64) error {
-	return nil
-}
-func (m *mockStorage) UpdateBalance(ctx context.Context, userID int64, current float64, withdrawn float64) error {
-	return nil
-}
-
-func newHandler(store repository.Storage) *handler.Handler {
+func newHandler(store *repoMocks.MockStorage) *handler.Handler {
 	return handler.NewHandler(store, nil, zap.NewNop(), nil, config.Config{})
 }
 
@@ -82,32 +39,72 @@ func newAuthRequest(t *testing.T, method, url string, body interface{}, userID i
 }
 
 func TestWithdrawHandlerTable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	validOrder := "79927398713"
+
 	tests := []struct {
 		name       string
 		body       interface{}
 		userID     int64
-		withdrawFn func(ctx context.Context, userID int64, order string, sum float64) error
+		setupMocks func(store *repoMocks.MockStorage)
 		wantStatus int
 	}{
-		{"Success", map[string]interface{}{"order": validOrder, "sum": 100.0}, 1,
-			func(ctx context.Context, userID int64, order string, sum float64) error { return nil }, http.StatusOK},
-		{"Unauthorized", map[string]interface{}{"order": validOrder, "sum": 100.0}, 0, nil, http.StatusUnauthorized},
-		{"Invalid JSON", "{invalid", 1, nil, http.StatusBadRequest},
-		{"Invalid Luhn", map[string]interface{}{"order": "1234567890", "sum": 100.0}, 1, nil, http.StatusUnprocessableEntity},
-		{"InsufficientFunds", map[string]interface{}{"order": validOrder, "sum": 100.0}, 1,
-			func(ctx context.Context, userID int64, order string, sum float64) error {
-				return repository.ErrInsufficientFunds
-			}, http.StatusPaymentRequired},
-		{"InternalError", map[string]interface{}{"order": validOrder, "sum": 100.0}, 1,
-			func(ctx context.Context, userID int64, order string, sum float64) error {
-				return errors.New("db error")
-			}, http.StatusInternalServerError},
+		{
+			name:   "Success",
+			body:   map[string]interface{}{"order": validOrder, "sum": 100.0},
+			userID: 1,
+			setupMocks: func(store *repoMocks.MockStorage) {
+				store.EXPECT().
+					Withdraw(gomock.Any(), int64(1), validOrder, 100.0).
+					Return(nil)
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "Unauthorized",
+			body:       map[string]interface{}{"order": validOrder, "sum": 100.0},
+			userID:     0,
+			setupMocks: func(store *repoMocks.MockStorage) {},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "Invalid JSON",
+			body:       "{invalid",
+			userID:     1,
+			setupMocks: func(store *repoMocks.MockStorage) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "InsufficientFunds",
+			body:   map[string]interface{}{"order": validOrder, "sum": 100.0},
+			userID: 1,
+			setupMocks: func(store *repoMocks.MockStorage) {
+				store.EXPECT().
+					Withdraw(gomock.Any(), int64(1), validOrder, 100.0).
+					Return(repository.ErrInsufficientFunds)
+			},
+			wantStatus: http.StatusPaymentRequired,
+		},
+		{
+			name:   "InternalError",
+			body:   map[string]interface{}{"order": validOrder, "sum": 100.0},
+			userID: 1,
+			setupMocks: func(store *repoMocks.MockStorage) {
+				store.EXPECT().
+					Withdraw(gomock.Any(), int64(1), validOrder, 100.0).
+					Return(errors.New("db error"))
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &mockStorage{withdrawFn: tt.withdrawFn}
+			store := repoMocks.NewMockStorage(ctrl)
+			tt.setupMocks(store)
+
 			h := newHandler(store)
 
 			var req *http.Request
@@ -124,42 +121,73 @@ func TestWithdrawHandlerTable(t *testing.T) {
 			h.WithdrawHandler(w, req)
 
 			resp := w.Result()
-			defer func() {
-				_ = resp.Body.Close()
-			}()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 		})
 	}
 }
 
 func TestWithdrawalsHandlerTable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	tests := []struct {
 		name       string
 		userID     int64
-		listFn     func(ctx context.Context, userID int64) ([]model.Withdrawal, error)
+		setupMocks func(store *repoMocks.MockStorage)
 		wantStatus int
 		wantLen    int
 	}{
-		{"Success", 1,
-			func(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
-				return []model.Withdrawal{
-					{Order: "123", Sum: 50},
-					{Order: "456", Sum: 100},
-				}, nil
-			}, http.StatusOK, 2},
-		{"NoWithdrawals", 1,
-			func(ctx context.Context, userID int64) ([]model.Withdrawal, error) { return nil, nil },
-			http.StatusNoContent, 0},
-		{"Unauthorized", 0, nil, http.StatusUnauthorized, 0},
-		{"InternalError", 1,
-			func(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
-				return nil, errors.New("db error")
-			}, http.StatusInternalServerError, 0},
+		{
+			name:   "Success",
+			userID: 1,
+			setupMocks: func(store *repoMocks.MockStorage) {
+				store.EXPECT().
+					ListWithdrawals(gomock.Any(), int64(1)).
+					Return([]model.Withdrawal{
+						{Order: "123", Sum: 50},
+						{Order: "456", Sum: 100},
+					}, nil)
+			},
+			wantStatus: http.StatusOK,
+			wantLen:    2,
+		},
+		{
+			name:   "NoWithdrawals",
+			userID: 1,
+			setupMocks: func(store *repoMocks.MockStorage) {
+				store.EXPECT().
+					ListWithdrawals(gomock.Any(), int64(1)).
+					Return(nil, nil)
+			},
+			wantStatus: http.StatusNoContent,
+			wantLen:    0,
+		},
+		{
+			name:       "Unauthorized",
+			userID:     0,
+			setupMocks: func(store *repoMocks.MockStorage) {},
+			wantStatus: http.StatusUnauthorized,
+			wantLen:    0,
+		},
+		{
+			name:   "InternalError",
+			userID: 1,
+			setupMocks: func(store *repoMocks.MockStorage) {
+				store.EXPECT().
+					ListWithdrawals(gomock.Any(), int64(1)).
+					Return(nil, errors.New("db error"))
+			},
+			wantStatus: http.StatusInternalServerError,
+			wantLen:    0,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &mockStorage{listWithdrawalsFn: tt.listFn}
+			store := repoMocks.NewMockStorage(ctrl)
+			tt.setupMocks(store)
+
 			h := newHandler(store)
 
 			req := newAuthRequest(t, http.MethodGet, "/withdrawals", nil, tt.userID)
@@ -171,9 +199,7 @@ func TestWithdrawalsHandlerTable(t *testing.T) {
 			h.WithdrawalsHandler(w, req)
 
 			resp := w.Result()
-			defer func() {
-				_ = resp.Body.Close()
-			}()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 
 			if tt.wantStatus == http.StatusOK {

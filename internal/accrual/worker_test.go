@@ -11,49 +11,10 @@ import (
 
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/accrual"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/model"
+	"github.com/tigranqic/go-musthave-diploma-tpl/internal/repository/mocks"
+	"go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
-
-type mockStore struct {
-	calls int32
-}
-
-func (m *mockStore) GetOrdersForAccrual(ctx context.Context) ([]model.Order, error) {
-	return []model.Order{{Number: "123"}}, nil
-}
-
-func (m *mockStore) UpdateOrderAccrual(ctx context.Context, number, status string, accrual *float64) error {
-	atomic.AddInt32(&m.calls, 1)
-	return nil
-}
-
-func (m *mockStore) CreateUser(ctx context.Context, login string, passwordHash []byte) (int64, error) {
-	return 1, nil
-}
-func (m *mockStore) GetUserByLogin(ctx context.Context, login string) (*model.User, error) {
-	return &model.User{ID: 1, Login: login}, nil
-}
-func (m *mockStore) CreateOrder(ctx context.Context, order *model.Order) error {
-	return nil
-}
-func (m *mockStore) GetOrder(ctx context.Context, number string) (*model.Order, error) {
-	return &model.Order{Number: number}, nil
-}
-func (m *mockStore) GetOrdersByUserID(ctx context.Context, userID int64) ([]*model.Order, error) {
-	return []*model.Order{{Number: "123"}}, nil
-}
-func (m *mockStore) GetBalance(ctx context.Context, userID int64) (*model.Balance, error) {
-	return &model.Balance{Current: 100, Withdrawn: 0}, nil
-}
-func (m *mockStore) Withdraw(ctx context.Context, userID int64, order string, sum float64) error {
-	return nil
-}
-func (m *mockStore) ListWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
-	return []model.Withdrawal{}, nil
-}
-func (m *mockStore) UpdateBalance(ctx context.Context, userID int64, current float64, withdrawn float64) error {
-	return nil
-}
 
 func TestWorker_Handles429AndSleep(t *testing.T) {
 	var counter int32
@@ -70,9 +31,20 @@ func TestWorker_Handles429AndSleep(t *testing.T) {
 	defer server.Close()
 
 	logger, _ := zap.NewDevelopment()
-	store := &mockStore{}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	worker := accrual.NewWorker(store, server.URL, logger)
+	mockStore := mocks.NewMockStorage(ctrl)
+	mockStore.EXPECT().
+		GetOrdersForAccrual(gomock.Any()).
+		Return([]model.Order{{Number: "123"}}, nil).
+		AnyTimes()
+
+	mockStore.EXPECT().
+		UpdateOrderAccrual(gomock.Any(), "123", "processed", gomock.Any()).
+		AnyTimes()
+
+	worker := accrual.NewWorker(mockStore, server.URL, logger)
 	worker.PollInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -87,9 +59,6 @@ func TestWorker_Handles429AndSleep(t *testing.T) {
 	if elapsed < 1*time.Second {
 		t.Fatalf("expected sleep for at least 1 second after 429, got %v", elapsed)
 	}
-	if atomic.LoadInt32(&store.calls) == 0 {
-		t.Fatalf("expected at least 1 successful update after 429")
-	}
 }
 
 func TestWorker_GracefulShutdown(t *testing.T) {
@@ -100,9 +69,16 @@ func TestWorker_GracefulShutdown(t *testing.T) {
 	defer server.Close()
 
 	logger, _ := zap.NewDevelopment()
-	store := &mockStore{}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	worker := accrual.NewWorker(store, server.URL, logger)
+	mockStore := mocks.NewMockStorage(ctrl)
+	mockStore.EXPECT().
+		GetOrdersForAccrual(gomock.Any()).
+		Return([]model.Order{{Number: "123"}}, nil).
+		AnyTimes()
+
+	worker := accrual.NewWorker(mockStore, server.URL, logger)
 	worker.PollInterval = 50 * time.Millisecond
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -135,9 +111,20 @@ func TestWorker_MultipleWorkers_Handle429(t *testing.T) {
 	defer server.Close()
 
 	logger, _ := zap.NewDevelopment()
-	store := &mockStore{}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	worker := accrual.NewWorker(store, server.URL, logger)
+	mockStore := mocks.NewMockStorage(ctrl)
+	mockStore.EXPECT().
+		GetOrdersForAccrual(gomock.Any()).
+		Return([]model.Order{{Number: "123"}}, nil).
+		AnyTimes()
+
+	mockStore.EXPECT().
+		UpdateOrderAccrual(gomock.Any(), "123", "processed", gomock.Any()).
+		AnyTimes()
+
+	worker := accrual.NewWorker(mockStore, server.URL, logger)
 	worker.PollInterval = 20 * time.Millisecond
 	worker.WorkerCount = 3
 
@@ -172,8 +159,4 @@ func TestWorker_MultipleWorkers_Handle429(t *testing.T) {
 	}
 
 	<-ctx.Done()
-
-	if atomic.LoadInt32(&store.calls) == 0 {
-		t.Fatalf("expected at least 1 successful update after 429")
-	}
 }

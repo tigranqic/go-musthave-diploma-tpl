@@ -35,7 +35,7 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	token, err := h.authSvc.GenerateToken(user.ID)
 	if err != nil {
-		h.log.Error("generate token failed", zap.Error(err))
+		h.log.Error("generate token failed", zap.Error(err), zap.Int64("user_id", user.ID))
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}

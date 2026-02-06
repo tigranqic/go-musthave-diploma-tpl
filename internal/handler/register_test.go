@@ -2,7 +2,6 @@ package handler_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,122 +9,73 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth"
-	"github.com/tigranqic/go-musthave-diploma-tpl/internal/auth/jwt"
+	"go.uber.org/mock/gomock"
+
+	authMocks "github.com/tigranqic/go-musthave-diploma-tpl/internal/auth/jwt/mocks"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/config"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/handler"
-	"github.com/tigranqic/go-musthave-diploma-tpl/internal/model"
 	"github.com/tigranqic/go-musthave-diploma-tpl/internal/repository"
+	repoMocks "github.com/tigranqic/go-musthave-diploma-tpl/internal/repository/mocks"
 	"go.uber.org/zap"
 )
 
-type mockRegisterStorage struct {
-	createUserFn func(ctx context.Context, login string, hash []byte) (int64, error)
-}
-
-func (m *mockRegisterStorage) CreateUser(ctx context.Context, login string, hash []byte) (int64, error) {
-	if m.createUserFn != nil {
-		return m.createUserFn(ctx, login, hash)
-	}
-	return 0, nil
-}
-
-func (m *mockRegisterStorage) GetUserByLogin(ctx context.Context, login string) (*model.User, error) {
-	return nil, nil
-}
-func (m *mockRegisterStorage) CreateOrder(ctx context.Context, order *model.Order) error {
-	return nil
-}
-func (m *mockRegisterStorage) GetOrder(ctx context.Context, number string) (*model.Order, error) {
-	return nil, nil
-}
-func (m *mockRegisterStorage) GetOrdersByUserID(ctx context.Context, userID int64) ([]*model.Order, error) {
-	return nil, nil
-}
-func (m *mockRegisterStorage) GetBalance(ctx context.Context, userID int64) (*model.Balance, error) {
-	return nil, nil
-}
-func (m *mockRegisterStorage) GetOrdersForAccrual(ctx context.Context) ([]model.Order, error) {
-	return nil, nil
-}
-func (m *mockRegisterStorage) UpdateOrderAccrual(ctx context.Context, order string, status string, accrual *float64) error {
-	return nil
-}
-func (m *mockRegisterStorage) UpdateBalance(ctx context.Context, userID int64, current float64, withdrawn float64) error {
-	return nil
-}
-func (m *mockRegisterStorage) Withdraw(ctx context.Context, userID int64, order string, sum float64) error {
-	return nil
-}
-func (m *mockRegisterStorage) ListWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
-	return nil, nil
-}
-
-type mockAuthSvc struct {
-	generateFn     func(userID int64) (string, error)
-	authenticateFn func(ctx context.Context, token string) (*auth.Identity, error)
-}
-
-func (m *mockAuthSvc) GenerateToken(userID int64) (string, error) {
-	if m.generateFn != nil {
-		return m.generateFn(userID)
-	}
-	return "mocktoken", nil
-}
-
-func (m *mockAuthSvc) Authenticate(ctx context.Context, token string) (*auth.Identity, error) {
-	if m.authenticateFn != nil {
-		return m.authenticateFn(ctx, token)
-	}
-	return &auth.Identity{UserID: 1}, nil
-}
-
-func newRegisterHandler(store repository.Storage, authSvc jwt.Service) *handler.Handler {
+func newRegisterHandler(store *repoMocks.MockStorage, authSvc *authMocks.MockService) *handler.Handler {
 	return handler.NewHandler(store, nil, zap.NewNop(), authSvc, config.Config{})
 }
 
 func TestRegisterHandler(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	tests := []struct {
 		name       string
 		body       interface{}
-		createFn   func(ctx context.Context, login string, hash []byte) (int64, error)
-		authFn     func(userID int64) (string, error)
+		setupMocks func(store *repoMocks.MockStorage, authSvc *authMocks.MockService)
 		wantStatus int
 		wantInBody string
 	}{
 		{
 			name: "Success",
 			body: map[string]string{"login": "user1", "password": "12345678"},
-			createFn: func(ctx context.Context, login string, hash []byte) (int64, error) {
-				return 1, nil
+			setupMocks: func(store *repoMocks.MockStorage, authSvc *authMocks.MockService) {
+				store.EXPECT().
+					CreateUser(gomock.Any(), "user1", gomock.Any()).
+					Return(int64(1), nil)
+				authSvc.EXPECT().
+					GenerateToken(int64(1)).
+					Return("token123", nil)
 			},
-			authFn:     func(userID int64) (string, error) { return "token123", nil },
 			wantStatus: http.StatusOK,
 			wantInBody: "token123",
 		},
 		{
 			name:       "Invalid JSON",
 			body:       "{invalid",
+			setupMocks: func(store *repoMocks.MockStorage, authSvc *authMocks.MockService) {},
 			wantStatus: http.StatusBadRequest,
 			wantInBody: "invalid JSON",
 		},
 		{
 			name:       "Short Password",
 			body:       map[string]string{"login": "user1", "password": "123"},
+			setupMocks: func(store *repoMocks.MockStorage, authSvc *authMocks.MockService) {},
 			wantStatus: http.StatusBadRequest,
 			wantInBody: "invalid login or password",
 		},
 		{
 			name:       "Empty Login",
 			body:       map[string]string{"login": "", "password": "12345678"},
+			setupMocks: func(store *repoMocks.MockStorage, authSvc *authMocks.MockService) {},
 			wantStatus: http.StatusBadRequest,
 			wantInBody: "invalid login or password",
 		},
 		{
 			name: "Login Already Taken",
 			body: map[string]string{"login": "user1", "password": "12345678"},
-			createFn: func(ctx context.Context, login string, hash []byte) (int64, error) {
-				return 0, repository.ErrLoginTaken
+			setupMocks: func(store *repoMocks.MockStorage, authSvc *authMocks.MockService) {
+				store.EXPECT().
+					CreateUser(gomock.Any(), "user1", gomock.Any()).
+					Return(int64(0), repository.ErrLoginTaken)
 			},
 			wantStatus: http.StatusConflict,
 			wantInBody: "login already taken",
@@ -133,17 +83,25 @@ func TestRegisterHandler(t *testing.T) {
 		{
 			name: "Internal Error in CreateUser",
 			body: map[string]string{"login": "user1", "password": "12345678"},
-			createFn: func(ctx context.Context, login string, hash []byte) (int64, error) {
-				return 0, errors.New("db error")
+			setupMocks: func(store *repoMocks.MockStorage, authSvc *authMocks.MockService) {
+				store.EXPECT().
+					CreateUser(gomock.Any(), "user1", gomock.Any()).
+					Return(int64(0), errors.New("db error"))
 			},
 			wantStatus: http.StatusInternalServerError,
 			wantInBody: "internal error",
 		},
 		{
-			name:       "Internal Error in Token Generation",
-			body:       map[string]string{"login": "user1", "password": "12345678"},
-			createFn:   func(ctx context.Context, login string, hash []byte) (int64, error) { return 1, nil },
-			authFn:     func(userID int64) (string, error) { return "", errors.New("token error") },
+			name: "Internal Error in Token Generation",
+			body: map[string]string{"login": "user1", "password": "12345678"},
+			setupMocks: func(store *repoMocks.MockStorage, authSvc *authMocks.MockService) {
+				store.EXPECT().
+					CreateUser(gomock.Any(), "user1", gomock.Any()).
+					Return(int64(1), nil)
+				authSvc.EXPECT().
+					GenerateToken(int64(1)).
+					Return("", errors.New("token error"))
+			},
 			wantStatus: http.StatusInternalServerError,
 			wantInBody: "internal error",
 		},
@@ -151,10 +109,10 @@ func TestRegisterHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &mockRegisterStorage{createUserFn: tt.createFn}
-			authSvc := &mockAuthSvc{
-				generateFn: tt.authFn,
-			}
+			store := repoMocks.NewMockStorage(ctrl)
+			authSvc := authMocks.NewMockService(ctrl)
+			tt.setupMocks(store, authSvc)
+
 			h := newRegisterHandler(store, authSvc)
 
 			var req *http.Request
@@ -170,9 +128,7 @@ func TestRegisterHandler(t *testing.T) {
 			h.RegisterHandler(w, req)
 
 			resp := w.Result()
-			defer func() {
-				_ = resp.Body.Close()
-			}()
+			defer resp.Body.Close()
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 
 			var body map[string]string
